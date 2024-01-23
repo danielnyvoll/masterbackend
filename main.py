@@ -133,4 +133,6 @@ def start_simulation(socketio, shared_data, lock):
 
 
 def get_simulation_data():
-    return {'ball': {'x' : simulation.ball.pose.position.x, 'y': simulation.ball.pose.position.y}}
+    return {'ball': {'x' : simulation.ball.pose.position.x, 'y': simulation.ball.pose.position.y},
+            'player' : {'x':simulation.player[0].pose.position.x, 'y': simulation.player[0].pose.position.y}
+            }
