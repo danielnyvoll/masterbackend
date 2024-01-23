@@ -1,4 +1,4 @@
-
+from threading import Lock
 from values import *
 from tools import Pose
 from ball import Ball
@@ -7,6 +7,7 @@ from state import FiniteStateMachineBall, MoveForwardStateBall, Reflection
 from environment import Environment
 import datetime
 import os
+import json
 
 # ______________________________________________________________________________
 # simulation2D function
@@ -58,15 +59,78 @@ def end_simulation():
     pygame.quit()
 
 
+def get_state(agent, ball, players):
+    # Define the state representation
+    # Example: position of the agent and the ball
+    return (agent.pose.position.x, agent.pose.position.y, ball.pose.position.x, ball.pose.position.y)
 
+def get_reward(agent, ball):
+    current_distance_to_ball = sqrt((agent.pose.position.x - ball.pose.position.x)**2 +
+                                    (agent.pose.position.y - ball.pose.position.y)**2)
 
+    if agent.last_distance_to_ball is not None:
+        distance_change = agent.last_distance_to_ball - current_distance_to_ball
+        reward = distance_change  # Reward is the change in distance
+    else:
+        reward = 0
+
+    agent.last_distance_to_ball = current_distance_to_ball
+    return reward
+
+def action_to_command(action):
+    # Define linear and angular speed values
+    linear_speed = 1.5  # Adjust this value as needed
+    angular_speed = 1.5  # Adjust this value as needed
+    if action == 0:  # Up - Move forward
+        return (linear_speed, 0)
+    elif action == 1:  # Down - Move backward
+        return (-linear_speed, 0)
+    elif action == 2:  # Left - Turn left
+        return (0,angular_speed)
+    elif action == 3:  # Right - Turn right
+        return (0, -angular_speed)
+    
 simulation = simulation2D(
-    [Player(Pose(300 * 0.01, 300 * 0.01, 0), 200, 200, 0.15), 
-     Player(Pose(400 * 0.01, 400 * 0.01, 3.14), 20, 20, 0.2),], 
-     False, 
-     False)
+        [QLearningAgent(4, Pose(300 * 0.01, 300 * 0.01, 0), 20, 20, 0.15),],
+        False, 
+        False)
+
+def start_simulation(socketio, shared_data, lock):
+   
+    window, clock, environment = init_simulation(simulation)
+    running = True
+    while running:
+
+        if (simulation.left_goal + simulation.right_goal) >= 5:
+            running = False
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+        if socketio:
+            simulation_data = get_simulation_data()
+            socketio.emit('simulation_data', json.dumps(simulation_data))
+            socketio.sleep(0.1)  
+
+        for agent in simulation.player: 
+            current_state = get_state(agent, simulation.ball, simulation.player)
+            action = agent.choose_action(current_state)
+            command = action_to_command(action)
+            agent.set_velocity(*command)
+
+            simulation.update()
+
+            new_state = get_state(agent, simulation.ball, simulation.player)
+            reward = get_reward(agent, simulation.ball)
+            agent.learn(current_state, action, reward, new_state, False)
+            agent.update_exploration_rate()
+
+        draw(simulation, window, environment)
+
+    pygame.quit()
+    end_simulation()
 
 
-while True:
-    simulation.set_commands([(2, 2), (5, 1)])
-    init_simulation(simulation)
+
+def get_simulation_data():
+    return {'ball': {'x' : simulation.ball.pose.position.x, 'y': simulation.ball.pose.position.y}}

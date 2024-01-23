@@ -192,14 +192,13 @@ class Simulation:
         cont = 0
         for players in self.player:
             dist_player = self.ball.pose.dist_square(players.pose)
-            print(str(dist_player))
-            print("R: " + str(RADIUS_BALL + players.radius))
             dirvector = self.ball.pose.position.dirvector(players.pose.position)
             dirvector.normalize()
             u = velocityBall.dot(dirvector)
-            print("U: " + str(u))
-            if u <= 0 and dist_player <= 1:
-                print("SJEKK SPARK!")
+            print(str(u))
+            print(str(dist_player))
+            if u <= 0 and dist_player <= 0.3:
+                print("Spark")
                 bumper_state, n_player, speed = True, cont, self.calculate_speed(players, self.ball)
             cont += 1
         
@@ -360,20 +359,6 @@ class Simulation:
         }
 
         environment.draw(params)
-
-        # # test
-        # sensors = self.player[0].sensors
-        # player_list = [(round(self.player[1].pose.position.x * M2PIX), round(self.player[1].pose.position.y * M2PIX))]
-        # distances = sensors.calculate_distance(self.player[0], player_list)
-        # cont = 0
-        # for dist in distances:
-        #     if dist.x != math.inf:
-        #         v = Vector2(self.player[0].pose.position.x * M2PIX + dist.x, self.player[0].pose.position.y * M2PIX + dist.y)
-        #         color = BLACK_COLOR
-        #         if cont == 40:
-        #             color = WHITE_COLOR
-        #         pygame.draw.line(window, color, (self.player[0].pose.position.x * M2PIX, self.player[0].pose.position.y * M2PIX), (int(v.x), int(v.y)), 3)
-        #     cont += 1
 
 def draw(simulation, window, environment):
     """
