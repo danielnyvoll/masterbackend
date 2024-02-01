@@ -9,6 +9,7 @@ import datetime
 import os
 import json
 
+running = True
 # ______________________________________________________________________________
 # simulation2D function
 def simulation2D(players, shockable = True, full_vision = True):
@@ -38,8 +39,6 @@ def init_simulation(simulation):
     pygame.init()
     window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Robot soccer 2D environment")
-    # icon = pygame.image.load(os.getcwd() + '/icon.PNG')
-    # pygame.display.set_icon(icon)
     clock = pygame.time.Clock()
 
     environment = Environment(window)
@@ -64,15 +63,20 @@ def get_state(agent, ball, players):
     # Example: position of the agent and the ball
     return (agent.pose.position.x, agent.pose.position.y, ball.pose.position.x, ball.pose.position.y)
 
-def get_reward(agent, ball):
+def get_reward(agent, ball, spark_occurred, goal):
     current_distance_to_ball = sqrt((agent.pose.position.x - ball.pose.position.x)**2 +
                                     (agent.pose.position.y - ball.pose.position.y)**2)
-
-    if agent.last_distance_to_ball is not None:
+    if spark_occurred:
+        reward = 1000
+    if abs(agent.linear_speed) < 0.01 and abs(agent.angular_speed) < 0.01:
+        reward -= 0.5
+    elif agent.last_distance_to_ball is not None:
         distance_change = agent.last_distance_to_ball - current_distance_to_ball
-        reward = distance_change  # Reward is the change in distance
+        reward = distance_change
+    elif goal:
+        reward = 100
     else:
-        reward = 0
+        reward = -1
 
     agent.last_distance_to_ball = current_distance_to_ball
     return reward
@@ -95,18 +99,15 @@ simulation = simulation2D(
         False, 
         False)
 
-def start_simulation(socketio, shared_data, lock):
-   
-    window, clock, environment = init_simulation(simulation)
+def start_simulation(socketio):
+    global running
     running = True
+
     while running:
 
         if (simulation.left_goal + simulation.right_goal) >= 5:
             running = False
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
         if socketio:
             simulation_data = get_simulation_data()
             socketio.emit('simulation_data', json.dumps(simulation_data))
@@ -121,18 +122,25 @@ def start_simulation(socketio, shared_data, lock):
             simulation.update()
 
             new_state = get_state(agent, simulation.ball, simulation.player)
-            reward = get_reward(agent, simulation.ball)
+            bumper_state, n_player, speed, spark_occurred = simulation.check_collision_between_ball_players()
+            goal = simulation.check_goal
+            reward = get_reward(agent, simulation.ball, spark_occurred, goal)
             agent.learn(current_state, action, reward, new_state, False)
+
             agent.update_exploration_rate()
 
-        draw(simulation, window, environment)
+def pause_simulation():
+    global running
+    running = False
 
-    pygame.quit()
-    end_simulation()
-
-
-
+def stop_simulation():
+    global running, background_task
+    running = False
+    if background_task is not None:
+        background_task = None
+        
 def get_simulation_data():
+    global simulation
     return {'ball': {'x' : simulation.ball.pose.position.x, 'y': simulation.ball.pose.position.y},
             'player' : {'x':simulation.player[0].pose.position.x, 'y': simulation.player[0].pose.position.y}
             }

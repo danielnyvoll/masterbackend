@@ -188,21 +188,19 @@ class Simulation:
         velocityBall = TransformCartesian(self.ball.linear_speed, self.ball.pose.rotation)
         velocityBall = Vector2(velocityBall.x, velocityBall.y)
 
-        bumper_state, n_player, speed = False, None, (0,0)
+        bumper_state, n_player, speed, kick_occoured = False, None, (0,0), False
         cont = 0
         for players in self.player:
             dist_player = self.ball.pose.dist_square(players.pose)
             dirvector = self.ball.pose.position.dirvector(players.pose.position)
             dirvector.normalize()
             u = velocityBall.dot(dirvector)
-            print(str(u))
-            print(str(dist_player))
-            if u <= 0 and dist_player <= 0.3:
-                print("Spark")
+            if u <= 0 and dist_player <= 0.5:
+                kick_occoured = True
                 bumper_state, n_player, speed = True, cont, self.calculate_speed(players, self.ball)
             cont += 1
         
-        return bumper_state, n_player, speed
+        return bumper_state, n_player, speed, kick_occoured
     
     def calculate_speed(self, collide_player, agent):
         """
@@ -251,6 +249,7 @@ class Simulation:
             if (datetime.datetime.now() - self.goal).seconds > 3:
                 self.left_goal += 1
                 self.goal = datetime.datetime.now()
+                return True
                 
         
         # Right goal
@@ -258,9 +257,12 @@ class Simulation:
             if (datetime.datetime.now() - self.goal).seconds > 3:
                 self.right_goal += 1
                 self.goal = datetime.datetime.now()
+                return True
         
         if (datetime.datetime.now() - self.goal).seconds < 1.0e-3:
             self.restart_game()
+            return True
+        return False
 
 
     def restart_game(self):
@@ -324,7 +326,7 @@ class Simulation:
             # Updating the player's movement
             self.player[i].update()
             
-        bumper_state, player_index, new_speed = self.check_collision_ball()
+        bumper_state, player_index, new_speed, isHit = self.check_collision_ball()
         if bumper_state:
             # Collision detected, update ball's velocity
             self.ball.linear_speed, self.ball.pose.rotation = new_speed
