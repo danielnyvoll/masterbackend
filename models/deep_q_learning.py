@@ -34,12 +34,13 @@ class DeepQLearningModel:
         """Returns actions by epsilon-greedy policy."""
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
-        act_values = self.model.predict(state)
+        act_values = self.model.predict(state) 
         return np.argmax(act_values[0])  # returns action
 
     def replay(self, batch_size):
         """Trains the model on a minibatch of experiences from the memory."""
         minibatch = random.sample(self.memory, batch_size)
+        print("----------------------------------------")
         for state, action, reward, next_state, done in minibatch:
             target = reward
             if not done:
