@@ -7,7 +7,7 @@ import os
 from models.deep_q_learning import DeepQLearningModel
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", logger=True, engineio_logger=True)
+socketio = SocketIO(app, cors_allowed_origins="*", logger=False, engineio_logger=False)
 
 # Initialize your model
 current_model = DeepQLearningModel(state_size=4, action_size=4, learning_rate=0.001)
@@ -48,10 +48,11 @@ current_state = None
 next_state = None
 last_action = None
 last_reward = None
+learning = False
 
 @socketio.on('update_positions')
 def handle_update_positions(data):
-    global current_model, last_action, last_reward, current_state, next_state
+    global current_model, last_action, last_reward, current_state, next_state, learning
 
     player_position = data.get('playerPosition')
     ball_position = data.get('ballPosition')
@@ -71,8 +72,12 @@ def handle_update_positions(data):
         # Update model with the transition
         current_model.remember(current_state, last_action, last_reward, next_state, isGoal)
         
-        if len(current_model.memory) > batch_size:
+        if len(current_model.memory) > batch_size and learning == False:
+            print("111111111111111111111111111111111111111")
+            learning = True
             current_model.replay(batch_size)
+            learning = False
+            print("222222222222222222222222222222222222222")
         
         # Prepare for the next action
         current_state = next_state
