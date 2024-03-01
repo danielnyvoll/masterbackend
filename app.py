@@ -55,10 +55,12 @@ last_reward = None
 learning = False
 previous_ball_pos = None
 should_load =True
+run_length = 0
+max_run_length = 50
 
 @socketio.on('update_positions')
 def handle_update_positions(data):
-    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load
+    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load, run_length, max_run_length
 
     if (should_load):    
         load_model()
@@ -81,13 +83,16 @@ def handle_update_positions(data):
 
         # Update model with the transition
         current_model.remember(current_state, last_action, last_reward, next_state, isGoal)
+
+        run_length += 1
         
-        if len(current_model.memory) > batch_size and learning == False:
+        if run_length >= max_run_length and learning == False:
             print("111111111111111111111111111111111111111")
             learning = True
             current_model.replay(batch_size)
             save_model()
             emit('reset', True)
+            run_length = 0
             learning = False
             print("222222222222222222222222222222222222222")
         
