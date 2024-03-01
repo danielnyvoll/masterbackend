@@ -11,7 +11,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", logger=False, engineio_logger
 
 # Initialize your model
 current_model = DeepQLearningModel(state_size=4, action_size=4, learning_rate=0.001)
-batch_size = 32  # Define your batch size for training
+batch_size = 32 # Define your batch size for training
 
 # Placeholder variables for distance calculations
 previous_ball_distance_to_goal = float('inf')
@@ -24,11 +24,15 @@ def calculate_distance(pos1, pos2):
     """Calculate the Euclidean distance between two points."""
     return np.sqrt((pos2['x'] - pos1['x'])**2 + (pos2['y'] - pos1['y'])**2)
 
-def get_reward(player_pos, ball_pos, isGoal, prev_ball_dist_to_goal, prev_player_dist_to_ball):
+def get_reward(player_pos, ball_pos, isGoal, prev_ball_pos, prev_player_dist_to_ball):
     """Define your reward function here."""
     # Example reward calculation
-    reward = 100 if isGoal else -1
-    return reward, calculate_distance(ball_pos, {'x': 0, 'y': 0}), calculate_distance(player_pos, ball_pos)
+    reward = 1000 if isGoal else -1
+    reward += prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)
+    if not prev_ball_pos == None:
+        reward += calculate_distance(ball_pos, prev_ball_pos)
+
+    return reward, ball_pos, calculate_distance(player_pos, ball_pos)
 
 @app.route('/save', methods=['POST'])
 def save_model():
@@ -49,10 +53,16 @@ next_state = None
 last_action = None
 last_reward = None
 learning = False
+previous_ball_pos = None
+should_load =True
 
 @socketio.on('update_positions')
 def handle_update_positions(data):
-    global current_model, last_action, last_reward, current_state, next_state, learning
+    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load
+
+    if (should_load):    
+        load_model()
+        should_load = False
 
     player_position = data.get('playerPosition')
     ball_position = data.get('ballPosition')
@@ -76,6 +86,8 @@ def handle_update_positions(data):
             print("111111111111111111111111111111111111111")
             learning = True
             current_model.replay(batch_size)
+            save_model()
+            emit('reset', True)
             learning = False
             print("222222222222222222222222222222222222222")
         
@@ -85,7 +97,7 @@ def handle_update_positions(data):
         last_reward = None
 
     # Calculate reward based on the current action and state
-    reward, _, _ = get_reward(player_position, ball_position, isGoal, previous_ball_distance_to_goal, previous_player_distance_to_ball)
+    reward, previous_ball_pos, previous_player_distance_to_ball = get_reward(player_position, ball_position, isGoal, previous_ball_pos, previous_player_distance_to_ball)
 
     # Choose and emit the next action
     action = current_model.choose_action(current_state)
