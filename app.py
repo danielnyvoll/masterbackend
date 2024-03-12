@@ -28,9 +28,9 @@ def get_reward(player_pos, ball_pos, isGoal, prev_ball_pos, prev_player_dist_to_
     """Define your reward function here."""
     # Example reward calculation
     reward = 1000 if isGoal else -1
-    reward += prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)
-    if not prev_ball_pos == None:
-        reward += calculate_distance(ball_pos, prev_ball_pos)
+    reward += (prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)) * 1000
+    #if not prev_ball_pos == None:
+    #    reward += calculate_distance(ball_pos, prev_ball_pos)
 
     return reward, ball_pos, calculate_distance(player_pos, ball_pos)
 
@@ -56,7 +56,7 @@ learning = False
 previous_ball_pos = None
 should_load =True
 run_length = 0
-max_run_length = 50
+max_run_length = 200
 
 @socketio.on('update_positions')
 def handle_update_positions(data):
@@ -65,6 +65,9 @@ def handle_update_positions(data):
     if (should_load):    
         load_model()
         should_load = False
+
+    if (learning):
+        return
 
     player_position = data.get('playerPosition')
     ball_position = data.get('ballPosition')
@@ -86,15 +89,16 @@ def handle_update_positions(data):
 
         run_length += 1
         
+        
         if run_length >= max_run_length and learning == False:
-            print("111111111111111111111111111111111111111")
             learning = True
             current_model.replay(batch_size)
             save_model()
-            emit('reset', True)
             run_length = 0
+            emit('reset', True)
             learning = False
-            print("222222222222222222222222222222222222222")
+            return
+        
         
         # Prepare for the next action
         current_state = next_state

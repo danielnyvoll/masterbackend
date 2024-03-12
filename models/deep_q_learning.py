@@ -32,8 +32,8 @@ class DeepQLearningModel:
 
     def choose_action(self, state):
         """Returns actions by epsilon-greedy policy."""
-        #if np.random.rand() <= self.epsilon:
-        #    return random.randrange(self.action_size)
+        if np.random.rand() <= self.epsilon:
+            return random.randrange(self.action_size)
         act_values = self.model.predict(state) 
         return np.argmax(act_values[0])  # returns action
 
