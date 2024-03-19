@@ -1,74 +1,104 @@
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
+from flask_cors import CORS
 import numpy as np
 import os
 
-# Import your Deep Q-Learning Model
+# Import your models (ensure these are correctly defined in your models package)
 from models.deep_q_learning import DeepQLearningModel
+from models.q_learning import QLearningModel
 
 app = Flask(__name__)
+CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", logger=False, engineio_logger=False)
 
-# Initialize your model
-current_model = DeepQLearningModel(state_size=4, action_size=4, learning_rate=0.001)
-batch_size = 32 # Define your batch size for training
+# Placeholder for the current model; this will be dynamically set based on the selection
+current_model = None
 
-# Placeholder variables for distance calculations
+# Initialize placeholder variables and configurations
 previous_ball_distance_to_goal = float('inf')
 previous_player_distance_to_ball = float('inf')
-
-# Command mapping from model output to action commands
 command_mapping = {0: "up", 1: "left", 2: "down", 3: "right"}
-
-def calculate_distance(pos1, pos2):
-    """Calculate the Euclidean distance between two points."""
-    return np.sqrt((pos2['x'] - pos1['x'])**2 + (pos2['y'] - pos1['y'])**2)
-
-def get_reward(player_pos, ball_pos, isGoal, prev_ball_pos, prev_player_dist_to_ball):
-    """Define your reward function here."""
-    # Example reward calculation
-    reward = 1000 if isGoal else -1
-    reward += (prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)) * 1000
-    #if not prev_ball_pos == None:
-    #    reward += calculate_distance(ball_pos, prev_ball_pos)
-
-    return reward, ball_pos, calculate_distance(player_pos, ball_pos)
-
-@app.route('/save', methods=['POST'])
-def save_model():
-    """Save the current model's weights."""
-    current_model.save('model_weights.h5')
-    return jsonify({"message": "Model weights saved."})
-
-@app.route('/load', methods=['GET'])
-def load_model():
-    """Load model weights."""
-    if os.path.exists('model_weights.h5'):
-        current_model.load('model_weights.h5')
-        return jsonify({"message": "Model weights loaded."})
-    return jsonify({"error": "Model weights file not found."})
-# Global storage for current and next states
+learning = False
+training_session_active = False
+batch_size = 32
+should_load = True
+run_length = 0
+max_run_length = 200
 current_state = None
 next_state = None
 last_action = None
 last_reward = None
-learning = False
 previous_ball_pos = None
-should_load =True
-run_length = 0
-max_run_length = 200
+
+def calculate_distance(pos1, pos2):
+    return np.sqrt((pos2['x'] - pos1['x'])**2 + (pos2['y'] - pos1['y'])**2)
+
+def get_reward(player_pos, ball_pos, isGoal, prev_ball_pos, prev_player_dist_to_ball):
+    reward = 1000 if isGoal else -1
+    reward += (prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)) * 1000
+    return reward, ball_pos, calculate_distance(player_pos, ball_pos)
+
+def initialize_model(model_selection):
+    global current_model
+    if model_selection == 'q-deep-learning':
+        current_model = DeepQLearningModel(state_size=4, action_size=4, learning_rate=0.001)
+        print("Deep Q-Learning Model selected.")
+    elif model_selection == 'q-learning':
+        current_model = QLearningModel(state_size=4, action_size=4)
+        print("Q-Learning Model selected.")
+    else:
+        raise ValueError("Invalid model selection.")
+
+@app.route('/start', methods=['POST'])
+def start_model():
+    global learning, training_session_active
+    data = request.get_json()
+    model_selection = data.get('model')
+    
+    try:
+        initialize_model(model_selection)
+        learning = True
+        training_session_active = True
+        return jsonify({"message": f"Model training started with {model_selection}."})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route('/stop', methods=['POST'])
+def stop_model():
+    global learning, training_session_active
+    learning = False
+    training_session_active = False
+    return jsonify({"message": "Model training stopped."})
+
+@app.route('/save', methods=['POST'])
+def save_model():
+    if hasattr(current_model, 'save'):
+        current_model.save('model_weights.h5')
+        return jsonify({"message": "Model weights saved."})
+    else:
+        return jsonify({"error": "Current model does not support saving."})
+
+@app.route('/load', methods=['GET'])
+def load_model():
+    global should_load
+    if os.path.exists('model_weights.h5') and hasattr(current_model, 'load'):
+        current_model.load('model_weights.h5')
+        should_load = False
+        return jsonify({"message": "Model weights loaded."})
+    return jsonify({"error": "Model weights file not found or current model does not support loading."})
 
 @socketio.on('update_positions')
 def handle_update_positions(data):
-    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load, run_length, max_run_length
+    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load, run_length, max_run_length, training_session_active
 
+    if not training_session_active:
+        return
+    
     if (should_load):    
         load_model()
         should_load = False
-
-    if (learning):
-        return
-
+    
     player_position = data.get('playerPosition')
     ball_position = data.get('ballPosition')
     isGoal = data.get('isGoal', {}).get('intersecting', False)
@@ -111,6 +141,7 @@ def handle_update_positions(data):
     # Choose and emit the next action
     action = current_model.choose_action(current_state)
     command = command_mapping.get(action, "unknown")
+    print(command)
     emit('command', command)
 
     # Temporarily store last action and reward
