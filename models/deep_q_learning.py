@@ -48,7 +48,9 @@ class DeepQLearningModel:
             target_f[0][action] = target
             self.model.fit(state, target_f, epochs=1, verbose=0)
         if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+            self.epsilon -= 0.001
+            print(self.epsilon)
+            #self.epsilon *= self.epsilon_decay
         self.memory.clear()
 
     def load(self, name):

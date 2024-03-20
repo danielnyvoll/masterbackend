@@ -10,15 +10,15 @@ app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", logger=False, engineio_logger=False)
 
 # Initialize your model
-current_model = DeepQLearningModel(state_size=4, action_size=4, learning_rate=0.001)
-batch_size = 32 # Define your batch size for training
+current_model = DeepQLearningModel(state_size=4, action_size=6, learning_rate=0.001)
+batch_size = 64 # Define your batch size for training
 
 # Placeholder variables for distance calculations
 previous_ball_distance_to_goal = float('inf')
 previous_player_distance_to_ball = float('inf')
 
 # Command mapping from model output to action commands
-command_mapping = {0: "up", 1: "left", 2: "down", 3: "right"}
+command_mapping = {0: "up", 1: "left", 2: "down", 3: "right", 4: "shoot", 5: "dribble"}
 
 def calculate_distance(pos1, pos2):
     """Calculate the Euclidean distance between two points."""
@@ -28,9 +28,9 @@ def get_reward(player_pos, ball_pos, isGoal, prev_ball_pos, prev_player_dist_to_
     """Define your reward function here."""
     # Example reward calculation
     reward = 1000 if isGoal else -1
-    reward += (prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)) * 1000
-    #if not prev_ball_pos == None:
-    #    reward += calculate_distance(ball_pos, prev_ball_pos)
+    reward += (prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)) * 10
+    if not prev_ball_pos == None:
+        reward += calculate_distance(ball_pos, prev_ball_pos) * 100
 
     return reward, ball_pos, calculate_distance(player_pos, ball_pos)
 
@@ -57,10 +57,12 @@ previous_ball_pos = None
 should_load =True
 run_length = 0
 max_run_length = 200
+runs = 0
+run_inc = 1000
 
 @socketio.on('update_positions')
 def handle_update_positions(data):
-    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load, run_length, max_run_length
+    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load, run_length, max_run_length, runs, run_inc
 
     if (should_load):    
         load_model()
@@ -96,6 +98,11 @@ def handle_update_positions(data):
             save_model()
             run_length = 0
             emit('reset', True)
+            if runs >= run_inc:
+                max_run_length += 20
+                runs = 0
+            else:
+                runs +=1
             learning = False
             return
         
