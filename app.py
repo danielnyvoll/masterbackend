@@ -1,153 +1,121 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
+from tensorflow.keras.preprocessing.image import img_to_array, load_img
+from io import BytesIO
+import base64
 import numpy as np
 import os
+from models.DQNAgent import DQNAgent
+from threading import Lock
 
-# Import your models (ensure these are correctly defined in your models package)
-from models.deep_q_learning import DeepQLearningModel
-from models.q_learning import QLearningModel
 
 app = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*", logger=False, engineio_logger=False)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Placeholder for the current model; this will be dynamically set based on the selection
-current_model = None
+# Initialize the DQN Agent
+agent = DQNAgent(state_shape=(10, 10, 3), action_size=4)
 
-# Initialize placeholder variables and configurations
-previous_ball_distance_to_goal = float('inf')
-previous_player_distance_to_ball = float('inf')
-command_mapping = {0: "up", 1: "left", 2: "down", 3: "right"}
-learning = False
-training_session_active = False
-batch_size = 32
-should_load = True
-run_length = 0
-max_run_length = 200
-current_state = None
-next_state = None
-last_action = None
-last_reward = None
-previous_ball_pos = None
+prev_ballPosition = {'x': None, 'y': None}
+prev_playerPosition = {'x': None, 'y': None}
 
 def calculate_distance(pos1, pos2):
+    """Calculate the Euclidean distance between two points."""
+    if(pos1['x'] == None or pos2['x'] == None or pos1['y'] == None or pos2['y'] == None):
+        return 0
     return np.sqrt((pos2['x'] - pos1['x'])**2 + (pos2['y'] - pos1['y'])**2)
 
-def get_reward(player_pos, ball_pos, isGoal, prev_ball_pos, prev_player_dist_to_ball):
-    reward = 1000 if isGoal else -1
-    reward += (prev_player_dist_to_ball - calculate_distance(player_pos, ball_pos)) * 1000
-    return reward, ball_pos, calculate_distance(player_pos, ball_pos)
+model_save_lock = Lock()
+global current_state  # Ensure this is defined outside your functions to maintain state across calls
+current_state = None
 
-def initialize_model(model_selection):
-    global current_model
-    if model_selection == 'q-deep-learning':
-        current_model = DeepQLearningModel(state_size=4, action_size=4, learning_rate=0.001)
-        print("Deep Q-Learning Model selected.")
-    elif model_selection == 'q-learning':
-        current_model = QLearningModel(state_size=4, action_size=4)
-        print("Q-Learning Model selected.")
-    else:
-        raise ValueError("Invalid model selection.")
-
-@app.route('/start', methods=['POST'])
-def start_model():
-    global learning, training_session_active
-    data = request.get_json()
-    model_selection = data.get('model')
-    
-    try:
-        initialize_model(model_selection)
-        learning = True
-        training_session_active = True
-        return jsonify({"message": f"Model training started with {model_selection}."})
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-@app.route('/stop', methods=['POST'])
-def stop_model():
-    global learning, training_session_active
-    learning = False
-    training_session_active = False
-    return jsonify({"message": "Model training stopped."})
-
-@app.route('/save', methods=['POST'])
-def save_model():
-    if hasattr(current_model, 'save'):
-        current_model.save('model_weights.h5')
-        return jsonify({"message": "Model weights saved."})
-    else:
-        return jsonify({"error": "Current model does not support saving."})
-
-@app.route('/load', methods=['GET'])
-def load_model():
-    global should_load
-    if os.path.exists('model_weights.h5') and hasattr(current_model, 'load'):
-        current_model.load('model_weights.h5')
-        should_load = False
-        return jsonify({"message": "Model weights loaded."})
-    return jsonify({"error": "Model weights file not found or current model does not support loading."})
-
-@socketio.on('update_positions')
-def handle_update_positions(data):
-    global current_model, last_action, last_reward, current_state, next_state, learning, previous_player_distance_to_ball, previous_ball_pos, should_load, run_length, max_run_length, training_session_active
-
-    if not training_session_active:
+@socketio.on('send_image')
+def handle_send_image(data):
+    global current_state, prev_ballPosition, prev_playerPosition
+    # Basic validation to ensure required data is present
+    if not all(key in data for key in ['image', 'playerPosition', 'ballPosition', 'isGoal']):
+        print("Missing data in request.")
         return
+
+    # Preprocess the current image to get the current state
+    next_state = preprocess_image(data['image'])
+    if current_state is not None:
+        
+        # Assuming you have a way to determine the action, reward, and if it's done
+        action = np.argmax(agent.model.predict(current_state)[0])
+        # Emit the command before calculating the reward
+        commands = ["up", "down", "left", "right"]
+        command = commands[action]
+        print(command)
+        
+        emit('command', command)  # Client should perform the action and send back the next image
+
+        # Calculate reward and whether the episode is done based on the action
+        prev_distance = calculate_distance(prev_playerPosition, prev_ballPosition)
+        current_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
+        reward, done, _ = get_reward(data['playerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, current_distance)
+        print(reward)
+        # Update replay memory and train the model
+        agent.add_experience(current_state, action, reward, next_state, done)
+
+    # Update state for the next iteration
+    current_state = next_state
+
+    # Optionally, perform training and model saving here
+    agent.train()
+    with model_save_lock:
+        agent.save_model()
+
+    # Update previous positions for the next call
+    prev_ballPosition, prev_playerPosition = data['ballPosition'], data['playerPosition']
+
+def get_reward(player_pos, ball_pos, isGoal, prev_ball_distance, current_distance):
+    """Calculate the reward."""
+    reward = 0
+    if isGoal:
+        reward += 100
+    elif current_distance < prev_ball_distance:
+        reward += 5  # Moved closer to the ball
+    else:
+        reward -= 10  # Moved away or stayed the same distance
+    return reward, isGoal, prev_ball_distance  # Returning current_distance for clarity
+
+@app.route("/save", methods=['POST'])
+def save_model_route():
+    agent.save_model()
+    return jsonify({"message": "Model saved successfully."})
+
+@app.route("/load", methods=['GET'])
+def load_model_route():
+    global agent
+    agent.load_model()  # Ensure DQNAgent has a load_model method or adjust this line
+    return jsonify({"message": "Model loaded successfully."})
+
+def preprocess_image(image_base64, target_size=(10, 10)):
+    """
+    Convert a base64-encoded image to a normalized array suitable for DQN model input.
     
-    if (should_load):    
-        load_model()
-        should_load = False
+    Parameters:
+        image_base64 (str): The base64-encoded representation of the image.
+        target_size (tuple): The desired size of the output image array (height, width).
     
-    player_position = data.get('playerPosition')
-    ball_position = data.get('ballPosition')
-    isGoal = data.get('isGoal', {}).get('intersecting', False)
-
-    # If this is the first message or after a reset, initialize the current state
-    if current_state is None:
-        current_state = np.array([player_position['x'], player_position['y'], ball_position['x'], ball_position['y']])
-        current_state = np.reshape(current_state, [1, 4])
-        return  # Wait for the next message which reflects the result of an action
-
-    # If we have an action waiting for its result
-    if last_action is not None:
-        next_state = np.array([player_position['x'], player_position['y'], ball_position['x'], ball_position['y']])
-        next_state = np.reshape(next_state, [1, 4])
-
-        # Update model with the transition
-        current_model.remember(current_state, last_action, last_reward, next_state, isGoal)
-
-        run_length += 1
-        
-        
-        if run_length >= max_run_length and learning == False:
-            learning = True
-            current_model.replay(batch_size)
-            save_model()
-            run_length = 0
-            emit('reset', True)
-            learning = False
-            return
-        
-        
-        # Prepare for the next action
-        current_state = next_state
-        last_action = None
-        last_reward = None
-
-    # Calculate reward based on the current action and state
-    reward, previous_ball_pos, previous_player_distance_to_ball = get_reward(player_position, ball_position, isGoal, previous_ball_pos, previous_player_distance_to_ball)
-
-    # Choose and emit the next action
-    action = current_model.choose_action(current_state)
-    command = command_mapping.get(action, "unknown")
-    print(command)
-    emit('command', command)
-
-    # Temporarily store last action and reward
-    last_action = action
-    last_reward = reward
-
+    Returns:
+        A numpy array representing the preprocessed image.
+    """
+    # Decode the base64 string
+    image_bytes = base64.b64decode(image_base64.split(",")[1])
+    
+    # Load the image from bytes and resize it
+    image = load_img(BytesIO(image_bytes), target_size=target_size)
+    
+    # Convert the PIL image to a numpy array and normalize pixel values to [0, 1]
+    image_array = img_to_array(image) / 255.0
+    
+    # Expand dimensions to include a batch size of 1
+    image_array = np.expand_dims(image_array, axis=0)
+    
+    return image_array
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
