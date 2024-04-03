@@ -94,8 +94,8 @@ def handle_update_positions(data):
         
         if run_length >= max_run_length and learning == False:
             learning = True
-            current_model.replay(batch_size)
-            save_model()
+            #current_model.replay(batch_size)
+            #save_model()
             run_length = 0
             emit('reset', True)
             if runs >= run_inc:
@@ -114,6 +114,8 @@ def handle_update_positions(data):
 
     # Calculate reward based on the current action and state
     reward, previous_ball_pos, previous_player_distance_to_ball = get_reward(player_position, ball_position, isGoal, previous_ball_pos, previous_player_distance_to_ball)
+
+    print(reward)
 
     # Choose and emit the next action
     action = current_model.choose_action(current_state)
