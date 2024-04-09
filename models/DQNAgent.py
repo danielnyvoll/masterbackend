@@ -7,10 +7,13 @@ from collections import deque
 import random
 
 class DQNAgent:
-    def __init__(self, state_shape, action_size, model_file='dqn_model.h5', replay_memory_size=50000, minibatch_size=64):
+    def __init__(self, state_shape, action_size, model_file='dqn_model.keras', replay_memory_size=50000, minibatch_size=64):
         self.state_shape = state_shape
         self.action_size = action_size
         self.model_file = model_file
+        self.epsilon = 1.0  # Starting value of epsilon
+        self.epsilon_min = 0.01  # Minimum value of epsilon
+        self.epsilon_decay = 0.995  # Decay multiplier for epsilon
         self.model = self.load_or_create_model()
         self.replay_memory = deque(maxlen=replay_memory_size)
         self.minibatch_size = minibatch_size
