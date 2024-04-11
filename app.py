@@ -33,10 +33,14 @@ global current_state, command_count, done
 current_state = None
 command_count = 0
 done = False
+train = False
 
 @socketio.on('send_image')
 def handle_send_image(data):
-    global current_state, prev_ballPosition, prev_playerPosition, command_count, done
+    global current_state, prev_ballPosition, prev_playerPosition, command_count, done, train
+
+    if train:
+        return
     
     if not all(key in data for key in ['image', 'playerPosition', 'ballPosition', 'isGoal']):
         print("Missing data in request.")
@@ -75,19 +79,23 @@ def handle_send_image(data):
         agent.add_experience(current_state, action, reward, next_state, done)
         print(f"Command: {command}, Reward: {reward}, Command Count: {command_count}")
 
-    if command_count > 25 or done:
+    prev_ballPosition, prev_playerPosition = data['ballPosition'], data['playerPosition']
+    current_state = next_state
+
+    if (command_count > 25 or done) and not train:
+        train = True
+        agent.train()  # Train the agent with experiences gathered
         emit('reset', True)  # Reset signal to client
         command_count = 0
         done = False  # Reset done for the next episode
+        train = False
 
-    current_state = next_state
-    agent.train()  # Train the agent with experiences gathered
 
     with model_save_lock:
         print("Save!!")
         agent.save_model()  # Specify your model path and name
 
-    prev_ballPosition, prev_playerPosition = data['ballPosition'], data['playerPosition']
+    
 
 
 def get_reward(player_pos, ball_pos, isGoal, prev_ball_distance, current_distance):
