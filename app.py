@@ -29,15 +29,17 @@ def calculate_distance(pos1, pos2):
 model_save_lock = Lock()
 
 # Ensure these are defined outside your functions to maintain state across calls
-global current_state, command_count, done
+global current_state, command_count, done, train, last_command, last_action
 current_state = None
 command_count = 0
 done = False
 train = False
+last_command = None
+last_action = None
 
 @socketio.on('send_image')
 def handle_send_image(data):
-    global current_state, prev_ballPosition, prev_playerPosition, command_count, done, train
+    global current_state, prev_ballPosition, prev_playerPosition, command_count, done, train, last_command, last_action
 
     if train:
         return
@@ -57,7 +59,7 @@ def handle_send_image(data):
         commands.extend(["dribble", "shoot"])
 
     if current_state is not None:
-        q_values = agent.model.predict(current_state)[0]
+        q_values = agent.model.predict(next_state)[0]
         print("Q-values:", q_values)
         
         if np.random.rand() <= agent.epsilon:
@@ -76,11 +78,13 @@ def handle_send_image(data):
         print("Epsilon: ", agent.epsilon)
         if agent.epsilon > agent.epsilon_min:
             agent.epsilon *= agent.epsilon_decay
-        agent.add_experience(current_state, action, reward, next_state, done)
-        print(f"Command: {command}, Reward: {reward}, Command Count: {command_count}")
+        agent.add_experience(current_state, last_action, reward, next_state, done)
+        print(f"Command: {last_command}, Reward: {reward}, Command Count: {command_count}")
 
     prev_ballPosition, prev_playerPosition = data['ballPosition'], data['playerPosition']
     current_state = next_state
+    last_action = action
+    last_command = command
 
     if (command_count > 25 or done) and not train:
         train = True
