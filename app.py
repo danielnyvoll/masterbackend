@@ -39,10 +39,11 @@ train = False
 last_command = None
 last_action_red = 0
 last_action_blue = 0
+multiplayer = False
 
 @socketio.on('send_image')
 def handle_send_image(data):
-    global current_state, prev_ballPosition, prev_playerPosition, command_count, done, train, last_command, last_action_blue, last_action_red
+    global current_state, prev_ballPosition, prev_playerPosition, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer
 
     if train:
         return
@@ -50,26 +51,33 @@ def handle_send_image(data):
     if not all(key in data for key in ['image', 'playerPosition', 'oppositePlayerPosition', 'ballPosition', 'isGoal']):
         print("Missing data in request.")
         return
+    multiplayer = data['isMultiplayer']['multiplayer']
     next_state = preprocess_image(data['image'])
     if current_state is not None:
         
+        if(multiplayer):
+            opponent_distance = calculate_distance(data['oppositePlayerPosition'], data['ballPosition'])
+            opponent_commands = get_available_commands(opponent_distance)
+            red_action = get_action(agentRed, next_state, opponent_commands)  # Adjustable epsilon
+
         player_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
-        opponent_distance = calculate_distance(data['oppositePlayerPosition'], data['ballPosition'])
 
         # Define commands based on distances for both players
         player_commands = get_available_commands(player_distance)
-        opponent_commands = get_available_commands(opponent_distance)
 
         # Fetch commands for both players
-        blue_action = get_action(agent, next_state, player_commands)  # Adjustable epsilon
-        red_action = get_action(agentRed, next_state, opponent_commands)  # Adjustable epsilon
-        print('player: ', player_commands[blue_action], " Red: ",   opponent_commands[red_action])
-        emit('command', {'player': player_commands[blue_action], 'opponent': opponent_commands[red_action]})
+        blue_action = get_action(agent, next_state, player_commands)  
+        if(multiplayer):
+            emit('command', {'player': player_commands[blue_action], 'opponent': opponent_commands[red_action]})
+        else:
+            emit('command', {'player': player_commands[blue_action], 'opponent': ""})
 
-        # Update game state and training after issuing commands
         update_game_state(data, next_state)
+
+
     current_state = next_state
-    last_action_red = red_action
+    if(multiplayer):
+        last_action_red = red_action
     last_action_blue = blue_action
 
 def get_action(agent, state, commands ):
@@ -83,24 +91,27 @@ def get_action(agent, state, commands ):
     return action
 
 def update_game_state(data, next_state):
-    global command_count, done, train, current_state, last_action_red, last_action_blue
+    global command_count, done, train, current_state, last_action_red, last_action_blue, multiplayer
     prev_distance = calculate_distance(prev_playerPosition, prev_ballPosition)
+    
     rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, calculate_distance(data['playerPosition'], data['ballPosition']))
-    rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']))
+    if(multiplayer):
+        rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']))
+        agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
 
     # Update experiences and training
     agent.add_experience(current_state, last_action_blue, rewardBlue, next_state, done)
-    agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
 
     
 
     command_count += 1
     print(command_count)
+    print(done)
     if (command_count > 38 or done) and not train:
-        print("-----------------------------------------------------")
         train = True
+        if(multiplayer):
+            agentRed.train()
         agent.train()
-        agentRed.train()
         emit('reset', True)
         command_count = 0
         done = False
@@ -108,12 +119,14 @@ def update_game_state(data, next_state):
 
     if agent.epsilon > agent.epsilon_min:
         agent.epsilon *= agent.epsilon_decay
-    if agentRed.epsilon > agentRed.epsilon_min:
-        agentRed.epsilon *= agent.epsilon_decay
+    if(multiplayer):
+        if agentRed.epsilon > agentRed.epsilon_min:
+            agentRed.epsilon *= agent.epsilon_decay
 
     with model_save_lock:
         agent.save_model()
-        agentRed.save_model()
+        if(multiplayer):
+            agentRed.save_model()
     
 
 def get_available_commands(distance):
