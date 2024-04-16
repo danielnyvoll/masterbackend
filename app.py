@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
@@ -7,173 +7,152 @@ import base64
 import numpy as np
 import os
 from models.DQNAgent import DQNAgent
+from models.DQNRedAgent import DQNRedAgent
 from threading import Lock
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Initialize the DQN Agent with a default model.
-agent = DQNAgent(state_shape=(10, 10, 3), action_size=6, model_file='dqn_model.keras')
+# Initialize the DQN Agent
+agent = DQNAgent(state_shape=(10, 10, 3), action_size=6)
+agentRed = DQNRedAgent(state_shape=(10, 10, 3), action_size=6)
 
-# For simplicity, using a single function to handle distance calculations.
+prev_ballPosition = {'x': None, 'y': None}
+prev_playerPosition = {'x': None, 'y': None}
+
+# For simplicity, using a single function to handle distance calculations
 def calculate_distance(pos1, pos2):
-    if None in (pos1['x'], pos2['x'], pos1['y'], pos2['y']):
+    """Calculate the Euclidean distance between two points."""
+    if pos1['x'] is None or pos2['x'] is None or pos1['y'] is None or pos2['y'] is None:
         return 0
     return np.sqrt((pos2['x'] - pos1['x'])**2 + (pos2['y'] - pos1['y'])**2)
 
 model_save_lock = Lock()
 
-prev_playerPosition = {'x': None, 'y': None}
-prev_ballPosition = {'x': None, 'y': None}
+# Ensure these are defined outside your functions to maintain state across calls
+global current_state, command_count, done, train, last_command, last_action
+current_state = None
+command_count = 0
+done = False
+train = False
+last_command = None
+last_action_red = 0
+last_action_blue = 0
 
-blueSideGoal = {'x': -121/2, 'y': 2.44/2, 'z': 0}
-redSideGoal ={'x': 121/2, 'y': 2.44/2, 'z': 0}
+@socketio.on('send_image')
+def handle_send_image(data):
+    global current_state, prev_ballPosition, prev_playerPosition, command_count, done, train, last_command, last_action_blue, last_action_red
 
-current_state, command_count, done = {}, 0, False
-training_session_active = False
+    if train:
+        return
+
+    if not all(key in data for key in ['image', 'playerPosition', 'oppositePlayerPosition', 'ballPosition', 'isGoal']):
+        print("Missing data in request.")
+        return
+    next_state = preprocess_image(data['image'])
+    if current_state is not None:
+        
+        player_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
+        opponent_distance = calculate_distance(data['oppositePlayerPosition'], data['ballPosition'])
+
+        # Define commands based on distances for both players
+        player_commands = get_available_commands(player_distance)
+        opponent_commands = get_available_commands(opponent_distance)
+
+        # Fetch commands for both players
+        blue_action = get_action(agent, next_state, player_commands)  # Adjustable epsilon
+        red_action = get_action(agentRed, next_state, opponent_commands)  # Adjustable epsilon
+        print('player: ', player_commands[blue_action], " Red: ",   opponent_commands[red_action])
+        emit('command', {'player': player_commands[blue_action], 'opponent': opponent_commands[red_action]})
+
+        # Update game state and training after issuing commands
+        update_game_state(data, next_state)
+    current_state = next_state
+    last_action_red = red_action
+    last_action_blue = blue_action
+
+def get_action(agent, state, commands ):
+    q_values = agent.model.predict(state)[0]
+    if np.random.rand() < agent.epsilon:
+        # Exploration
+        action = np.random.choice(len(commands))
+    else:
+        # Exploitation
+        action = np.argmax(q_values[:len(commands)])
+    return action
+
+def update_game_state(data, next_state):
+    global command_count, done, train, current_state, last_action_red, last_action_blue
+    prev_distance = calculate_distance(prev_playerPosition, prev_ballPosition)
+    rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, calculate_distance(data['playerPosition'], data['ballPosition']))
+    rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']))
+
+    # Update experiences and training
+    agent.add_experience(current_state, last_action_blue, rewardBlue, next_state, done)
+    agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
+
+    
+
+    command_count += 1
+    print(command_count)
+    if (command_count > 38 or done) and not train:
+        print("-----------------------------------------------------")
+        train = True
+        agent.train()
+        agentRed.train()
+        emit('reset', True)
+        command_count = 0
+        done = False
+        train = False
+
+    if agent.epsilon > agent.epsilon_min:
+        agent.epsilon *= agent.epsilon_decay
+    if agentRed.epsilon > agentRed.epsilon_min:
+        agentRed.epsilon *= agent.epsilon_decay
+
+    with model_save_lock:
+        agent.save_model()
+        agentRed.save_model()
+    
+
+def get_available_commands(distance):
+    base_commands = ["up", "down", "left", "right"]
+    if distance < 1:
+        return base_commands + ["dribble", "shoot"]
+    return base_commands
+
+def get_reward(player_pos, ball_pos, is_goal, prev_ball_distance, current_distance):
+    reward = 0
+    if is_goal:
+        reward += 100
+    elif current_distance < prev_ball_distance:
+        reward += 5
+    elif current_distance == prev_ball_distance:
+        reward -= 20
+    else:
+        reward -= 10
+    return reward, is_goal, current_distance
+
+
+
+
+@app.route("/save", methods=['POST'])
+def save_model_route():
+    agent.save_model(os.path.join('model_path', 'model_name.h5'))  # Adjust with your model path and name
+    return jsonify({"message": "Model saved successfully."})
+
+@app.route("/load", methods=['GET'])
+def load_model_route():
+    agent.load_model(os.path.join('model_path', 'model_name.h5'))  # Adjust with your model path and name
+    return jsonify({"message": "Model loaded successfully."})
 
 def preprocess_image(image_base64, target_size=(10, 10)):
     image_bytes = base64.b64decode(image_base64.split(",")[1])
     image = load_img(BytesIO(image_bytes), target_size=target_size)
     image_array = img_to_array(image) / 255.0
-    return np.expand_dims(image_array, axis=0)
+    image_array = np.expand_dims(image_array, axis=0)
+    return image_array
 
-def get_reward(player_pos, ball_pos, isGoal, prev_ball_distance, current_distance, player_team):
-    reward = 0
-    goal_scored = isGoal
-    
-    if goal_scored:
-            reward += 100  # Reward for scoring a goal
-
-    elif current_distance < prev_ball_distance:
-        reward += 5  # Reward for moving closer to the ball
-    elif current_distance == prev_ball_distance:
-        reward -= 20  # Penalty for standing still
-    else:
-        reward -= 10  # Penalty for moving away from the ball
-    
-    return reward, goal_scored, current_distance
-
-
-
-@app.route('/start', methods=['POST'])
-def start_model():
-    data = request.get_json()
-    model_selection = data.get('model')
-    try:
-        initialize_model(model_selection)
-        return jsonify({"message": f"Model training started with {model_selection}."})
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-@app.route('/stop', methods=['POST'])
-def stop_model():
-    global training_session_active, command_count
-    training_session_active = False
-    command_count = 0
-    agent.save_model()
-    return jsonify({"message": "Model training stopped."})
-
-def initialize_model(model_selection):
-    global training_session_active
-
-    # Adjust agent initialization based on the selected model.
-    if model_selection in ['q-deep-learning', 'q-learning']:
-        print(f"{model_selection} Model selected.")
-        training_session_active = True
-    else:
-        print("Default Model selected.")
-
-def save_model():
-    with model_save_lock:
-        # Specify your model path and name here.
-        model_path = os.path.join('model_path', 'model_name.h5')
-        print(f"Saving model to {model_path}")
-        agent.save_model(model_path)
-
-@app.route("/save", methods=['POST'])
-def save_model_route():
-    save_model()
-    return jsonify({"message": "Model saved successfully."})
-
-@app.route("/load", methods=['GET'])
-def load_model_route():
-    model_path = os.path.join('model_path', 'model_name.h5')
-    agent.load_model(model_path)
-    return jsonify({"message": "Model loaded successfully."})
-
-@socketio.on('send_image')
-def handle_send_image(data):
-    global current_state, command_count, done, training_session_active
-    if not training_session_active:
-        emit('reset', True)
-        return
-    if not all(key in data for key in ['image', 'gameState', 'ballPosition', 'isGoal']):
-        print("Missing required data")
-        return
-
-    if current_state is None or done:
-        current_state = {}
-
-    players_data = data.get('gameState', {}).get('players', {})
-    if 'image' in data:
-        image_state = preprocess_image(data['image'])
-
-    for player_id, player_info in players_data.items():
-        if not player_info:
-            print(f"Missing player information for player ID {player_id}")
-            continue
-        
-        player_team = player_info['team']
-        player_position = {'x': player_info['x'], 'y': player_info['y'], 'z': player_info['z']}
-        
-        current_state[player_id] = image_state  # Assigning processed image to each player's state
-
-        current_distance = calculate_distance(player_position, data['ballPosition'])
-        commands = ["up", "down", "left", "right", "dribble", "shoot"] if current_distance < 1 else ["up", "down", "left", "right"]
-        take_action(player_id, player_team, commands, current_state[player_id], player_position, data['ballPosition'], data['isGoal'])
-
-    if command_count > 25 or done:
-        emit('next', True)
-        reset_training()
-    else:
-        command_count += 1
-
-def take_action(player_id, player_team, commands, current_state, playerPosition, ballPosition, isGoal):
-    global command_count, done, prev_playerPosition, prev_ballPosition
-
-    if player_id not in prev_playerPosition:
-        prev_playerPosition[player_id] = {'x': None, 'y': None}
-    if player_id not in prev_ballPosition:
-        prev_ballPosition[player_id] = {'x': None, 'y': None}
-
-    q_values = agent.model.predict(current_state)[0]
-    action = np.argmax(q_values) % len(commands) if player_team == 'red' else np.random.choice(len(commands))
-
-    command = commands[action]
-    emit('command', {'playerId': player_id, 'command': command})
-
-    prev_ball_distance = calculate_distance(prev_playerPosition[player_id], prev_ballPosition[player_id])
-    current_distance = calculate_distance(playerPosition, ballPosition)
-    reward, done, _ = get_reward(playerPosition, ballPosition, isGoal, prev_ball_distance, current_distance, player_team)
-    emit('reward', {'id': player_id, 'reward': reward, 'command': command})
-
-    agent.add_experience(current_state, action, reward, current_state, done)
-
-    prev_playerPosition[player_id] = playerPosition
-    prev_ballPosition[player_id] = ballPosition
-
-    if command_count > 25 or done:
-        reset_training()
-
-def reset_training():
-    global command_count, done, current_state
-    emit('reset', True)
-    command_count = 0
-    done = False
-    current_state = {}
-    with model_save_lock:
-        agent.save_model()
 if __name__ == '__main__':
     socketio.run(app, debug=True)

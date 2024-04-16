@@ -7,7 +7,7 @@ from collections import deque
 import random
 
 class DQNAgent:
-    def __init__(self, state_shape, action_size, model_file='dqn_model.keras', replay_memory_size=50000, minibatch_size=64):
+    def __init__(self, state_shape, action_size, model_file='dqn_model.keras', replay_memory_size=50000, minibatch_size=32):
         self.state_shape = state_shape
         self.action_size = action_size
         self.model_file = model_file
