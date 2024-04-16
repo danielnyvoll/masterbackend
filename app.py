@@ -19,7 +19,8 @@ agent = DQNAgent(state_shape=(10, 10, 3), action_size=6)
 agentRed = DQNRedAgent(state_shape=(10, 10, 3), action_size=6)
 
 prev_ballPosition = {'x': None, 'y': None}
-prev_playerPosition = {'x': None, 'y': None}
+prev_player_distance_to_ball = 100
+prev_opponent_distance_to_ball = 100
 
 # For simplicity, using a single function to handle distance calculations
 def calculate_distance(pos1, pos2):
@@ -44,7 +45,7 @@ multiplayer = False
 
 @socketio.on('send_image')
 def handle_send_image(data):
-    global current_state, prev_ballPosition, prev_playerPosition, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer, start_model_training
+    global current_state, prev_ballPosition, prev_opponent_distance_to_ball, prev_player_distance_to_ball, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer, start_model_training
     if(start_model_training):
         if train:
             return
@@ -77,8 +78,10 @@ def handle_send_image(data):
 
 
         current_state = next_state
+        prev_player_distance_to_ball = player_distance
         if(multiplayer):
             last_action_red = red_action
+            prev_opponent_distance_to_ball = opponent_distance
         last_action_blue = blue_action
 
 def get_action(agent, state, commands ):
@@ -92,18 +95,21 @@ def get_action(agent, state, commands ):
     return action
 
 def update_game_state(data, next_state):
-    global command_count, done, train, current_state, last_action_red, last_action_blue, multiplayer
-    prev_distance = calculate_distance(prev_playerPosition, prev_ballPosition)
+    global command_count, done, train, current_state, last_action_red, last_action_blue, multiplayer, prev_opponent_distance_to_ball, prev_player_distance_to_ball
     
-    rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, calculate_distance(data['playerPosition'], data['ballPosition']))
-    if(multiplayer):
-        rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']))
-        agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
+    rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_player_distance_to_ball, calculate_distance(data['playerPosition'], data['ballPosition']))
 
     # Update experiences and training
     agent.add_experience(current_state, last_action_blue, rewardBlue, next_state, done)
 
-    
+    if multiplayer:
+        rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_opponent_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']))
+        agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
+        # Emit rewards for both players
+        emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': rewardRed})
+    else:
+        # Emit reward only for the blue player when not in multiplayer
+        emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': None})
 
     command_count += 1
     print(command_count)
