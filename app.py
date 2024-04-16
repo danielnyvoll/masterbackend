@@ -14,7 +14,7 @@ CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Initialize the DQN Agent
-agent = DQNAgent(state_shape=(10, 10, 3), action_size=6)
+agent = DQNAgent(state_shape=(10, 10, 3), action_size=6, model_file="dqn_model.keras")
 
 prev_ballPosition = {'x': None, 'y': None}
 prev_playerPosition = {'x': None, 'y': None}
@@ -35,7 +35,7 @@ command_count = 0
 done = False
 train = False
 last_command = None
-last_action = None
+last_action = 0
 
 @socketio.on('send_image')
 def handle_send_image(data):
@@ -75,9 +75,6 @@ def handle_send_image(data):
         prev_distance = calculate_distance(prev_playerPosition, prev_ballPosition)
         
         reward, done, _ = get_reward(data['playerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_distance, current_distance)
-        print("Epsilon: ", agent.epsilon)
-        if agent.epsilon > agent.epsilon_min:
-            agent.epsilon *= agent.epsilon_decay
         agent.add_experience(current_state, last_action, reward, next_state, done)
         print(f"Command: {last_command}, Reward: {reward}, Command Count: {command_count}")
 
@@ -86,11 +83,14 @@ def handle_send_image(data):
     last_action = action
     last_command = command
 
-    if (command_count > 25 or done) and not train:
+    if (command_count > 38 or done) and not train:
         train = True
         agent.train()  # Train the agent with experiences gathered
         emit('reset', True)  # Reset signal to client
         command_count = 0
+        print("Epsilon: ", agent.epsilon)
+        if agent.epsilon > agent.epsilon_min:
+            agent.epsilon *= agent.epsilon_decay
         done = False  # Reset done for the next episode
         train = False
 
