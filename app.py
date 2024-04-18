@@ -55,6 +55,10 @@ def handle_send_image(data):
             return
         multiplayer = data['isMultiplayer']['multiplayer']
         next_state = preprocess_image(data['image'])
+        isGoal = data['isGoal']
+        goal = isGoal['intersecting']
+        scoringSide = isGoal['scoringSide']
+
         if current_state is not None:
             
             if(multiplayer):
@@ -74,7 +78,7 @@ def handle_send_image(data):
             else:
                 emit('command', {'player': player_commands[blue_action], 'opponent': ""})
 
-            update_game_state(data, next_state)
+            update_game_state(data, next_state, goal, scoringSide)
 
 
         current_state = next_state
@@ -94,16 +98,16 @@ def get_action(agent, state, commands ):
         action = np.argmax(q_values[:len(commands)])
     return action
 
-def update_game_state(data, next_state):
+def update_game_state(data, next_state, goal, scoringSide):
     global command_count, done, train, current_state, last_action_red, last_action_blue, multiplayer, prev_opponent_distance_to_ball, prev_player_distance_to_ball
     
-    rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_player_distance_to_ball, calculate_distance(data['playerPosition'], data['ballPosition']))
+    rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], goal, scoringSide, prev_player_distance_to_ball, calculate_distance(data['playerPosition'], data['ballPosition']), True)
 
     # Update experiences and training
     agent.add_experience(current_state, last_action_blue, rewardBlue, next_state, done)
 
     if multiplayer:
-        rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], data['isGoal']['intersecting'], prev_opponent_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']))
+        rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], goal, scoringSide, prev_opponent_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']), False)
         agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
         # Emit rewards for both players
         emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': rewardRed})
@@ -142,10 +146,13 @@ def get_available_commands(distance):
         return base_commands + ["dribble", "shoot"]
     return base_commands
 
-def get_reward(player_pos, ball_pos, is_goal, prev_ball_distance, current_distance):
+def get_reward(player_pos, ball_pos, is_goal, scoringSide, prev_ball_distance, current_distance, isBlue):
     reward = 0
     if is_goal:
-        reward += 100
+        if (isBlue):
+            reward += 100 * scoringSide
+        else:
+            reward -= 100 * scoringSide
     elif current_distance < prev_ball_distance:
         reward += 5
     elif current_distance == prev_ball_distance:

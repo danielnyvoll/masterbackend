@@ -13,7 +13,7 @@ class DQNAgent:
         self.model_file = model_file
         self.epsilon = 1.0  # Starting value of epsilon
         self.epsilon_min = 0.01  # Minimum value of epsilon
-        self.epsilon_decay = 0.995  # Decay multiplier for epsilon
+        self.epsilon_decay = 0.999  # Decay multiplier for epsilon
         self.model = self.load_or_create_model()
         self.replay_memory = deque(maxlen=replay_memory_size)
         self.minibatch_size = minibatch_size
@@ -59,3 +59,5 @@ class DQNAgent:
             target_f = self.model.predict(state)
             target_f[0][action] = target
             self.model.fit(state, target_f, epochs=1, verbose=0)
+        if len(self.replay_memory) > 100:
+            self.replay_memory.clear()
