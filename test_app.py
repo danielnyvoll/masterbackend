@@ -9,7 +9,12 @@ def app():
 def client(app):
     return app.test_client()
 
-def test_hello_world(client):
-    response = client.get("/")
+def test_start_training(client):
+    response = client.post("/start")
     assert response.status_code == 200
-    assert b"Hello, World!" in response.data
+    assert b"Training started." in response.data
+
+def test_stop_training(client):
+    response = client.post("/stop")
+    assert response.status_code == 200
+    assert b"Training stopped and model reset." in response.data
