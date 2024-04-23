@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, send_file
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
@@ -160,22 +160,48 @@ def get_reward(player_pos, ball_pos, is_goal, scoringSide, prev_ball_distance, c
     else:
         reward -= 10
     return reward, is_goal, current_distance
+VALID_MODEL_NAMES = ['dqn_model_red.keras', 'dqn_model.keras']
 
+@app.route("/upload", methods=['POST'])
+def upload_model_route():
+    model_file = request.files['file']  # Get the uploaded model file
+    model_name = model_file.filename  # Use the filename as the model name
+    
+    # Check if the uploaded file has the correct name
+    if model_name in VALID_MODEL_NAMES:
+        model_path = os.path.join(model_name)  # Path where to save the model
+        model_file.save(model_path)  # Save the uploaded model file, will overwrite existing
+        return jsonify({"message": f"Model {model_name} uploaded successfully."})
+    else:
+        return jsonify({"message": "Invalid file name. Please upload either dqn_model_red.keras or dqn_model.keras."}), 400
 
-
-
-@app.route("/save", methods=['POST'])
-def save_model_route():
-    agent.save_model(os.path.join('model_path', 'model_name.h5'))  # Adjust with your model path and name
-    return jsonify({"message": "Model saved successfully."})
-
-@app.route("/load", methods=['GET'])
-def load_model_route():
-    agent.load_model(os.path.join('model_path', 'model_name.h5'))  # Adjust with your model path and name
-    return jsonify({"message": "Model loaded successfully."})
+@app.route("/download", methods=['GET'])
+def download_model_route():
+    model_name = request.args.get('model_name')  # Get the model name from query parameters
+    
+    # Check if the requested model name is valid
+    if model_name in VALID_MODEL_NAMES:
+        model_path = os.path.join(model_name)  # Path to the model file
+        if os.path.exists(model_path):
+            return send_file(model_path, as_attachment=True)
+        else:
+            return jsonify({"message": "Model not found."}), 404
+    else:
+        return jsonify({"message": "Invalid model name. Please request either dqn_model_red.keras or dqn_model.keras."}), 400
 
 @app.route('/start', methods=['POST'])
 def start_training():
+    data = request.get_json()  # This will parse the JSON data sent in the request
+    model = data.get('model')  # Access the model value from the parsed JSON data
+    print(model)
+    if model is None:
+        return jsonify({"error": "No model specified"}), 400
+    if(model == "q-learning"):
+        agent.epsilon = 1
+        agentRed.epsilon = 1
+    else:
+        agentRed.epsilon = 0.1
+        agent.epsilon = 0.1
     global start_model_training
     start_model_training = True
     return jsonify({"message": "Training started."})
@@ -198,6 +224,11 @@ def preprocess_image(image_base64, target_size=(10, 10)):
     image_array = img_to_array(image) / 255.0
     image_array = np.expand_dims(image_array, axis=0)
     return image_array
+
+
+
+if __name__ == '__main__':
+    socketio.run(app, debug=True)
 
 
 
