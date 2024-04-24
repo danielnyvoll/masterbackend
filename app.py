@@ -32,7 +32,7 @@ def calculate_distance(pos1, pos2):
 model_save_lock = Lock()
 
 # Ensure these are defined outside your functions to maintain state across calls
-global current_state, command_count, done, train
+global current_state, command_count, done, train, isMatch
 start_model_training = False
 current_state = None
 command_count = 0
@@ -42,10 +42,11 @@ last_command = None
 last_action_red = 0
 last_action_blue = 0
 multiplayer = False
+isMatch = False
 
 @socketio.on('send_image')
 def handle_send_image(data):
-    global current_state, prev_ballPosition, prev_opponent_distance_to_ball, prev_player_distance_to_ball, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer, start_model_training
+    global current_state, prev_ballPosition, prev_opponent_distance_to_ball, prev_player_distance_to_ball, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer, start_model_training, isMatch
     if(start_model_training):
         if train:
             return
@@ -77,8 +78,11 @@ def handle_send_image(data):
                 emit('command', {'player': player_commands[blue_action], 'opponent': opponent_commands[red_action]})
             else:
                 emit('command', {'player': player_commands[blue_action], 'opponent': ""})
-
-            update_game_state(data, next_state, goal, scoringSide)
+            if(isMatch):
+                print("Kamp")
+            else:
+                print("Tren")
+                update_game_state(data, next_state, goal, scoringSide)
 
 
         current_state = next_state
@@ -191,6 +195,7 @@ def download_model_route():
 
 @app.route('/start', methods=['POST'])
 def start_training():
+    global start_model_training, isMatch
     data = request.get_json()  # This will parse the JSON data sent in the request
     model = data.get('model')  # Access the model value from the parsed JSON data
     print(model)
@@ -199,10 +204,11 @@ def start_training():
     if(model == "q-learning"):
         agent.epsilon = 1
         agentRed.epsilon = 1
+        isMatch = False
     else:
         agentRed.epsilon = 0.1
         agent.epsilon = 0.1
-    global start_model_training
+        isMatch = True
     start_model_training = True
     return jsonify({"message": "Training started."})
 
@@ -224,11 +230,6 @@ def preprocess_image(image_base64, target_size=(10, 10)):
     image_array = img_to_array(image) / 255.0
     image_array = np.expand_dims(image_array, axis=0)
     return image_array
-
-
-
-if __name__ == '__main__':
-    socketio.run(app, debug=True)
 
 
 
