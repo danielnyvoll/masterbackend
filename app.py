@@ -14,7 +14,6 @@ app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Initialize the DQN Agent
 agent = DQNAgent(state_shape=(10, 10, 3), action_size=6)
 agentRed = DQNRedAgent(state_shape=(10, 10, 3), action_size=6)
 
@@ -22,7 +21,6 @@ prev_ballPosition = {'x': None, 'y': None}
 prev_player_distance_to_ball = 100
 prev_opponent_distance_to_ball = 100
 
-# For simplicity, using a single function to handle distance calculations
 def calculate_distance(pos1, pos2):
     """Calculate the Euclidean distance between two points."""
     if pos1['x'] is None or pos2['x'] is None or pos1['y'] is None or pos2['y'] is None:
@@ -31,7 +29,6 @@ def calculate_distance(pos1, pos2):
 
 model_save_lock = Lock()
 
-# Ensure these are defined outside your functions to maintain state across calls
 global current_state, command_count, done, train, isMatch
 start_model_training = False
 current_state = None
@@ -47,6 +44,7 @@ isMatch = False
 @socketio.on('send_image')
 def handle_send_image(data):
     global current_state, prev_ballPosition, prev_opponent_distance_to_ball, prev_player_distance_to_ball, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer, start_model_training, isMatch
+    print(data)
     if(start_model_training):
         if train:
             return
@@ -59,20 +57,18 @@ def handle_send_image(data):
         isGoal = data['isGoal']
         goal = isGoal['intersecting']
         scoringSide = isGoal['scoringSide']
-
         if current_state is not None:
-            
+            if not multiplayer and data['playerPosition'] ==  {'x': 0, 'y': 0, 'z': 0}:
+                agent = agentRed
             if(multiplayer):
                 opponent_distance = calculate_distance(data['oppositePlayerPosition'], data['ballPosition'])
                 opponent_commands = get_available_commands(opponent_distance)
-                red_action = get_action(agentRed, next_state, opponent_commands)  # Adjustable epsilon
+                red_action = get_action(agentRed, next_state, opponent_commands)
 
             player_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
 
-            # Define commands based on distances for both players
             player_commands = get_available_commands(player_distance)
 
-            # Fetch commands for both players
             blue_action = get_action(agent, next_state, player_commands)  
             if(multiplayer):
                 emit('command', {'player': player_commands[blue_action], 'opponent': opponent_commands[red_action]})
@@ -113,10 +109,8 @@ def update_game_state(data, next_state, goal, scoringSide):
     if multiplayer:
         rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], goal, scoringSide, prev_opponent_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']), False)
         agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
-        # Emit rewards for both players
         emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': rewardRed})
     else:
-        # Emit reward only for the blue player when not in multiplayer
         emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': None})
 
     command_count += 1
@@ -181,7 +175,7 @@ def upload_model_route():
 
 @app.route("/download", methods=['GET'])
 def download_model_route():
-    model_name = request.args.get('model_name')  # Get the model name from query parameters
+    model_name = request.args.get('model_name') 
     
     # Check if the requested model name is valid
     if model_name in VALID_MODEL_NAMES:
@@ -220,6 +214,7 @@ def stop_training():
     command_count = 0
     socketio.emit('reset',  True)  # Emit reset to the frontend
     agent.epsilon = 1.0  # Reset epsilon after training stops
+    agent = DQNAgent(state_shape=(10, 10, 3), action_size=6)
     if multiplayer:
         agentRed.epsilon = 1.0
     return jsonify({"message": "Training stopped and model reset."})
