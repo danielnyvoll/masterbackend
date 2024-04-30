@@ -13,7 +13,7 @@ from threading import Lock
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
-
+global agent, agentRed
 agent = DQNAgent(state_shape=(10, 10, 3), action_size=6)
 agentRed = DQNRedAgent(state_shape=(10, 10, 3), action_size=6)
 
@@ -43,8 +43,7 @@ isMatch = False
 
 @socketio.on('send_image')
 def handle_send_image(data):
-    global current_state, prev_ballPosition, prev_opponent_distance_to_ball, prev_player_distance_to_ball, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer, start_model_training, isMatch
-    print(data)
+    global current_state, prev_ballPosition, prev_opponent_distance_to_ball, prev_player_distance_to_ball, command_count, done, train, last_command, last_action_blue, last_action_red, multiplayer, start_model_training, isMatch, agent, agentRed
     if(start_model_training):
         if train:
             return
@@ -74,10 +73,7 @@ def handle_send_image(data):
                 emit('command', {'player': player_commands[blue_action], 'opponent': opponent_commands[red_action]})
             else:
                 emit('command', {'player': player_commands[blue_action], 'opponent': ""})
-            if(isMatch):
-                print("Kamp")
-            else:
-                print("Tren")
+            if not isMatch:
                 update_game_state(data, next_state, goal, scoringSide)
 
 
@@ -91,10 +87,8 @@ def handle_send_image(data):
 def get_action(agent, state, commands ):
     q_values = agent.model.predict(state)[0]
     if np.random.rand() < agent.epsilon:
-        # Exploration
         action = np.random.choice(len(commands))
     else:
-        # Exploitation
         action = np.argmax(q_values[:len(commands)])
     return action
 
@@ -103,7 +97,6 @@ def update_game_state(data, next_state, goal, scoringSide):
     
     rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], goal, scoringSide, prev_player_distance_to_ball, calculate_distance(data['playerPosition'], data['ballPosition']), True)
 
-    # Update experiences and training
     agent.add_experience(current_state, last_action_blue, rewardBlue, next_state, done)
 
     if multiplayer:
@@ -114,8 +107,6 @@ def update_game_state(data, next_state, goal, scoringSide):
         emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': None})
 
     command_count += 1
-    print(command_count)
-    print(done)
     if (command_count > 38 or done) and not train:
         train = True
         if(multiplayer):
@@ -162,13 +153,12 @@ VALID_MODEL_NAMES = ['dqn_model_red.keras', 'dqn_model.keras']
 
 @app.route("/upload", methods=['POST'])
 def upload_model_route():
-    model_file = request.files['file']  # Get the uploaded model file
-    model_name = model_file.filename  # Use the filename as the model name
+    model_file = request.files['file'] 
+    model_name = model_file.filename 
     
-    # Check if the uploaded file has the correct name
     if model_name in VALID_MODEL_NAMES:
-        model_path = os.path.join(model_name)  # Path where to save the model
-        model_file.save(model_path)  # Save the uploaded model file, will overwrite existing
+        model_path = os.path.join(model_name)
+        model_file.save(model_path)  
         return jsonify({"message": f"Model {model_name} uploaded successfully."})
     else:
         return jsonify({"message": "Invalid file name. Please upload either dqn_model_red.keras or dqn_model.keras."}), 400
@@ -176,10 +166,9 @@ def upload_model_route():
 @app.route("/download", methods=['GET'])
 def download_model_route():
     model_name = request.args.get('model_name') 
-    
-    # Check if the requested model name is valid
+
     if model_name in VALID_MODEL_NAMES:
-        model_path = os.path.join(model_name)  # Path to the model file
+        model_path = os.path.join(model_name) 
         if os.path.exists(model_path):
             return send_file(model_path, as_attachment=True)
         else:
@@ -189,10 +178,9 @@ def download_model_route():
 
 @app.route('/start', methods=['POST'])
 def start_training():
-    global start_model_training, isMatch
-    data = request.get_json()  # This will parse the JSON data sent in the request
-    model = data.get('model')  # Access the model value from the parsed JSON data
-    print(model)
+    global start_model_training, isMatch, agent, agentRed
+    data = request.get_json()  
+    model = data.get('model') 
     if model is None:
         return jsonify({"error": "No model specified"}), 400
     if(model == "q-learning"):
@@ -212,8 +200,8 @@ def stop_training():
     start_model_training = False
     done = False
     command_count = 0
-    socketio.emit('reset',  True)  # Emit reset to the frontend
-    agent.epsilon = 1.0  # Reset epsilon after training stops
+    socketio.emit('reset',  True)  
+    agent.epsilon = 1.0 
     agent = DQNAgent(state_shape=(10, 10, 3), action_size=6)
     if multiplayer:
         agentRed.epsilon = 1.0
