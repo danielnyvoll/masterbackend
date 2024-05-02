@@ -28,14 +28,10 @@ class DQNRedAgent:
 
     def create_model(self):
         model = Sequential([
-            Conv2D(256, (3, 3), activation='relu', input_shape=self.state_shape),
+            Conv2D(64, (3, 3), activation='relu', input_shape=self.state_shape),
             MaxPooling2D((2, 2)),
-            Dropout(0.2),
-            Conv2D(256, (3, 3), activation='relu'),
-            MaxPooling2D((2, 2)),
-            Dropout(0.2),
             Flatten(),
-            Dense(64, activation='relu'),
+            Dense(32, activation='relu'),
             Dense(self.action_size, activation='linear')
         ])
         model.compile(loss='mse', optimizer=Adam(lr=0.001))
