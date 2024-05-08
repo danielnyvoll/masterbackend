@@ -91,9 +91,9 @@ def get_action(agent, state, commands ):
     else:
         action = np.argmax(q_values[:len(commands)])
     return action
-
+count = 0
 def update_game_state(data, next_state, goal, scoringSide):
-    global command_count, done, train, current_state, last_action_red, last_action_blue, multiplayer, prev_opponent_distance_to_ball, prev_player_distance_to_ball
+    global command_count, done, train, current_state, last_action_red, last_action_blue, multiplayer, prev_opponent_distance_to_ball, prev_player_distance_to_ball, count
     
     rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], goal, scoringSide, prev_player_distance_to_ball, calculate_distance(data['playerPosition'], data['ballPosition']), True)
 
@@ -112,6 +112,8 @@ def update_game_state(data, next_state, goal, scoringSide):
         if(multiplayer):
             agentRed.train()
         agent.train()
+        count+=1
+        print(count)
         emit('reset', True)
         command_count = 0
         done = False
@@ -122,7 +124,8 @@ def update_game_state(data, next_state, goal, scoringSide):
     if(multiplayer):
         if agentRed.epsilon > agentRed.epsilon_min:
             agentRed.epsilon *= agent.epsilon_decay
-
+    if agent.epsilon < agent.epsilon_min:
+        agent.epsilon = 1
     with model_save_lock:
         agent.save_model()
         if(multiplayer):
@@ -192,6 +195,7 @@ def start_training():
         agent.epsilon = 0.1
         isMatch = True
     start_model_training = True
+
     return jsonify({"message": "Training started."})
 
 @app.route('/stop', methods=['POST'])
