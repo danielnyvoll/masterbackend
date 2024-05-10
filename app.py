@@ -22,10 +22,11 @@ prev_player_distance_to_ball = 100
 prev_opponent_distance_to_ball = 100
 
 def calculate_distance(pos1, pos2):
-    """Calculate the Euclidean distance between two points."""
-    if pos1['x'] is None or pos2['x'] is None or pos1['y'] is None or pos2['y'] is None:
-        return 0
-    return np.sqrt((pos2['x'] - pos1['x'])**2 + (pos2['y'] - pos1['y'])**2)
+    required_keys = ['x', 'y', 'z']
+    for key in required_keys:
+        if key not in pos1 or key not in pos2 or pos1[key] is None or pos2[key] is None:
+            return 0
+    return np.sqrt((pos2['x'] - pos1['x'])**2 + (pos2['y'] - pos1['y'])**2 + (pos2['z'] - pos1['z'])**2)
 
 model_save_lock = Lock()
 
@@ -65,7 +66,7 @@ def handle_send_image(data):
                 red_action = get_action(agentRed, next_state, opponent_commands)
 
             player_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
-
+            print(player_distance)
             player_commands = get_available_commands(player_distance)
 
             blue_action = get_action(agent, next_state, player_commands)  
@@ -90,7 +91,6 @@ def get_action(agent, state, commands ):
         action = np.random.choice(len(commands))
     else:
         action = np.argmax(q_values[:len(commands)])
-    print(action)
     return action
 count = 0
 def update_game_state(data, next_state, goal, scoringSide):
@@ -153,6 +153,7 @@ def get_reward(player_pos, ball_pos, is_goal, scoringSide, prev_ball_distance, c
     else:
         reward -= 10
     return reward, is_goal, current_distance
+
 VALID_MODEL_NAMES = ['dqn_model_red.keras', 'dqn_model.keras']
 
 @app.route("/upload", methods=['POST'])
