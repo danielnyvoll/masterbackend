@@ -11,7 +11,7 @@ class DQNRedAgent:
         self.state_shape = state_shape
         self.action_size = action_size
         self.model_file = model_file
-        self.epsilon = 1.0  # Starting value of epsilon
+        self.epsilon = 1.0 
         self.epsilon_min = 0.01  # Minimum value of epsilon
         self.epsilon_decay = 0.999  # Decay multiplier for epsilon
         self.model = self.load_or_create_model()
