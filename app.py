@@ -90,6 +90,7 @@ def get_action(agent, state, commands ):
         action = np.random.choice(len(commands))
     else:
         action = np.argmax(q_values[:len(commands)])
+    print(action)
     return action
 count = 0
 def update_game_state(data, next_state, goal, scoringSide):
