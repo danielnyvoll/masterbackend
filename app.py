@@ -103,9 +103,6 @@ def update_game_state(data, next_state, goal, scoringSide):
     if multiplayer:
         rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], goal, scoringSide, prev_opponent_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']), False)
         agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
-        emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': rewardRed})
-    else:
-        emit('reward', {'rewardBlue': rewardBlue, 'rewardRed': None})
 
     command_count += 1
     if (command_count > 38 or done) and not train:
