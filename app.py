@@ -66,7 +66,6 @@ def handle_send_image(data):
                 red_action = get_action(agentRed, next_state, opponent_commands)
 
             player_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
-            print(player_distance)
             player_commands = get_available_commands(player_distance)
 
             blue_action = get_action(agent, next_state, player_commands)  
@@ -103,9 +102,9 @@ def update_game_state(data, next_state, goal, scoringSide):
     if multiplayer:
         rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], goal, scoringSide, prev_opponent_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']), False)
         agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
-
+    print(agent.epsilon)
     command_count += 1
-    if (command_count > 38 or done) and not train:
+    if (command_count > 68 or done) and not train:
         train = True
         if(multiplayer):
             agentRed.train()
