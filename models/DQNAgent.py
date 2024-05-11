@@ -13,7 +13,7 @@ class DQNAgent:
         self.model_file = model_file
         self.epsilon = 1.0  # Starting value of epsilon
         self.epsilon_min = 0.01  # Minimum value of epsilon
-        self.epsilon_decay = 0.9999  # Decay multiplier for epsilon
+        self.epsilon_decay = 0.9995  # Decay multiplier for epsilon
         self.model = self.load_or_create_model()
         self.replay_memory = deque(maxlen=replay_memory_size)
         self.minibatch_size = minibatch_size

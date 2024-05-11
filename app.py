@@ -115,9 +115,9 @@ def update_game_state(data, next_state, goal, scoringSide):
         command_count = 0
         done = False
         train = False
-
-    if agent.epsilon > agent.epsilon_min:
-        agent.epsilon *= agent.epsilon_decay
+    if(command_count % 5 == 0):
+        if agent.epsilon > agent.epsilon_min:
+            agent.epsilon *= agent.epsilon_decay
     if(multiplayer):
         if agentRed.epsilon > agentRed.epsilon_min:
             agentRed.epsilon *= agent.epsilon_decay
