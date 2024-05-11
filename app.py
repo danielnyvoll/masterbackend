@@ -113,7 +113,7 @@ def update_game_state(data, next_state, goal, scoringSide):
         agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
     print(rewardBlue)
     command_count += 1
-    if (command_count > 68 or done) and not train:
+    if (command_count > 38 or done) and not train:
         train = True
         if(multiplayer):
             agentRed.train()
