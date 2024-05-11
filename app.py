@@ -60,19 +60,26 @@ def handle_send_image(data):
         if current_state is not None:
             if not multiplayer and data['playerPosition'] ==  {'x': 0, 'y': 0, 'z': 0}:
                 agent = agentRed
+                player_distance = calculate_distance(data['oppositePlayerPosition'], data['ballPosition'])
+                player_commands = get_available_commands(player_distance)
+            else:
+                player_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
+                player_commands = get_available_commands(player_distance)
             if(multiplayer):
                 opponent_distance = calculate_distance(data['oppositePlayerPosition'], data['ballPosition'])
                 opponent_commands = get_available_commands(opponent_distance)
                 red_action = get_action(agentRed, next_state, opponent_commands)
 
-            player_distance = calculate_distance(data['playerPosition'], data['ballPosition'])
-            player_commands = get_available_commands(player_distance)
-
-            blue_action = get_action(agent, next_state, player_commands)  
+            blue_action = get_action(agent, next_state, player_commands)
+            print(player_distance)
+            print(player_commands[blue_action])  
             if(multiplayer):
                 emit('command', {'player': player_commands[blue_action], 'opponent': opponent_commands[red_action]})
             else:
-                emit('command', {'player': player_commands[blue_action], 'opponent': ""})
+                if(data['playerPosition'] ==  {'x': 0, 'y': 0, 'z': 0}):
+                    emit('command', {'player': "", 'opponent': player_commands[blue_action]})
+                else:
+                    emit('command', {'player': player_commands[blue_action], 'opponent': ""})
             if not isMatch:
                 update_game_state(data, next_state, goal, scoringSide)
 
@@ -94,15 +101,17 @@ def get_action(agent, state, commands ):
 count = 0
 def update_game_state(data, next_state, goal, scoringSide):
     global command_count, done, train, current_state, last_action_red, last_action_blue, multiplayer, prev_opponent_distance_to_ball, prev_player_distance_to_ball, count
-    
-    rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], goal, scoringSide, prev_player_distance_to_ball, calculate_distance(data['playerPosition'], data['ballPosition']), True)
+    if data['playerPosition'] ==  {'x': 0, 'y': 0, 'z': 0}:
+        rewardBlue, done, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], goal, scoringSide, prev_player_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']), False)
+    else:
+        rewardBlue, done, _ = get_reward(data['playerPosition'], data['ballPosition'], goal, scoringSide, prev_player_distance_to_ball, calculate_distance(data['playerPosition'], data['ballPosition']), True)
 
     agent.add_experience(current_state, last_action_blue, rewardBlue, next_state, done)
 
     if multiplayer:
         rewardRed, doneRed, _ = get_reward(data['oppositePlayerPosition'], data['ballPosition'], goal, scoringSide, prev_opponent_distance_to_ball, calculate_distance(data['oppositePlayerPosition'], data['ballPosition']), False)
         agentRed.add_experience(current_state, last_action_red, rewardRed, next_state, doneRed)
-    print(agent.epsilon)
+    print(rewardBlue)
     command_count += 1
     if (command_count > 68 or done) and not train:
         train = True
