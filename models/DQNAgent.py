@@ -34,7 +34,7 @@ class DQNAgent:
             Dense(32, activation='relu'),
             Dense(self.action_size, activation='linear')
         ])
-        model.compile(loss='mse', optimizer=Adam(lr=0.001))
+        model.compile(loss='mse', optimizer=Adam(learning_rate=0.001))
         return model
 
     def save_model(self):
