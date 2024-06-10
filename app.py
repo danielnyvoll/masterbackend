@@ -161,8 +161,6 @@ def update_game_state(data, next_state, goal, scoringSide):
         if multiplayer:
             agentRed.train()
         agent.train()
-        count += 1
-        print(count)
         emit('reset', True)
         command_count = 0
         done = False
